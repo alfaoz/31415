@@ -11,17 +11,15 @@ from pygame.math import Vector2
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 FPS = 144
-PIXELS_PER_METER = 100 # Visual scaling
+PIXELS_PER_METER = 100 
 GROUND_Y = SCREEN_HEIGHT - 50
-WALL_X = 10.0 # Use float for position calculations
+WALL_X = 10.0
 INITIAL_SPEED_MPS = 1.0 # Initial speed of block 2 in meters per second
 SIM_SPEED_FACTOR = 1.0 # Adjust to speed up/slow down simulation time visually
-EPSILON = 1e-9 # Small number for float comparisons
+EPSILON = 1e-9 #make it as small as possible for float comparisons
 
-# --- Physics Constants ---
-COR = 1.0 # Coefficient of Restitution (MUST be 1.0 for Pi calculation)
+COR = 1.0 
 
-# --- Dark Mode Colors ---
 class Color:
     BACKGROUND = (30, 30, 30)
     GROUND_WALL = (80, 80, 80)
@@ -37,7 +35,6 @@ class Color:
     INPUT_BOX_BORDER = (150, 150, 150)
     INPUT_BOX_BORDER_ACTIVE = (255, 255, 255)
 
-# --- Pygame and Mixer Setup ---
 pygame.init()
 try:
     pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
@@ -47,16 +44,12 @@ except pygame.error:
     sound_enabled = False
 pygame.font.init()
 
-# --- Font Setup ---
-# Increased font size for input boxes/labels
 input_font = pygame.font.SysFont("Consolas", 20)
 main_font = pygame.font.SysFont("Consolas", 18) # Keep for block mass text
 button_font = pygame.font.SysFont("Arial", 20, bold=True)
 info_font = pygame.font.SysFont("Arial", 20)
 small_button_font = pygame.font.SysFont("Arial", 14, bold=True) # For x100 button
 
-# --- Sound Generation & Playback ---
-# (Sound functions remain the same)
 click_sound = None
 if sound_enabled:
     try:
@@ -65,10 +58,10 @@ if sound_enabled:
             samples = int(sample_rate * duration)
             t = np.linspace(0., duration, samples, endpoint=False)
             wave = 0.3 * np.sin(2. * np.pi * frequency * t)
-            decay = np.exp(-t / (duration / 4)) # Exponential decay
+            decay = np.exp(-t / (duration / 4)) 
             wave *= decay
             wave_int16 = np.int16(wave * 32767)
-            stereo_wave = np.repeat(wave_int16[:, np.newaxis], 2, axis=1) # Make it stereo
+            stereo_wave = np.repeat(wave_int16[:, np.newaxis], 2, axis=1)
             sound = pygame.sndarray.make_sound(stereo_wave)
             return sound
         click_sound = generate_click_sound()
@@ -76,27 +69,26 @@ if sound_enabled:
         print(f"Warning: Could not generate click sound - {e}")
         sound_enabled = False
 
-sound_play_times = {} # Dictionary to track last play time per object pair/wall
-SOUND_COOLDOWN = 0.01 # Minimum time between sounds for the same collision (shorter for faster events)
+sound_play_times = {} 
+SOUND_COOLDOWN = 0.01
 
 def play_click_sound(obj1_id, obj2_id="wall"):
     """Plays the click sound if available and cooldown has passed."""
     if not (sound_enabled and click_sound):
         return
-    # Use a simpler key for event-based sound triggering
+   
     key = f"{obj1_id}-{obj2_id}"
-    current_time = time.time() # Use real time for cooldown to prevent sound spam
+    current_time = time.time()
     last_play = sound_play_times.get(key, 0)
     if current_time - last_play > SOUND_COOLDOWN:
         click_sound.play()
         sound_play_times[key] = current_time
 
 
-# --- Input Box Class ---
-# (InputBox class remains the same)
+
 class InputBox:
     """A simple text input box for Pygame."""
-    def __init__(self, x, y, w, h, initial_text='', font=input_font): # Use new input_font
+    def __init__(self, x, y, w, h, initial_text='', font=input_font):
         self.rect = pygame.Rect(x, y, w, h)
         self.color_border = Color.INPUT_BOX_BORDER
         self.text = initial_text
@@ -105,7 +97,7 @@ class InputBox:
         self.active = False
         self.cursor_visible = False
         self.cursor_timer = 0
-        self.padding = 8 # Increased padding
+        self.padding = 8 
 
     def handle_event(self, event):
         """Handles events for the input box (clicks, key presses)."""
@@ -122,15 +114,13 @@ class InputBox:
             if self.active:
                 if event.key == K_BACKSPACE:
                     self.text = self.text[:-1]
-                elif event.key == K_RETURN: # Allow Enter to deactivate
+                elif event.key == K_RETURN: 
                     self.active = False
                     self.color_border = Color.INPUT_BOX_BORDER
                 elif event.unicode.isdigit() or (event.key == K_PERIOD and '.' not in self.text):
-                     # Allow input only if it fits (check against width minus padding)
                      if self.font.size(self.text + event.unicode)[0] < self.rect.width - (2 * self.padding):
                          self.text += event.unicode
 
-                # Update text surface immediately after text change
                 self.text_surface = self.font.render(self.text, True, Color.TEXT_INPUT_ACTIVE if self.active else Color.TEXT)
                 self.cursor_visible = True
                 self.cursor_timer = time.time()
@@ -147,19 +137,14 @@ class InputBox:
     def draw(self, screen):
         """Draws the input box on the screen."""
         pygame.draw.rect(screen, Color.INPUT_BOX_BG, self.rect)
-        # Render text color based on active state and update surface
         self.text_surface = self.font.render(self.text, True, Color.TEXT_INPUT_ACTIVE if self.active else Color.TEXT)
-        # Center text vertically, apply horizontal padding
         text_y = self.rect.y + (self.rect.height - self.text_surface.get_height()) // 2
         screen.blit(self.text_surface, (self.rect.x + self.padding, text_y))
         pygame.draw.rect(screen, self.color_border, self.rect, 2, border_radius=3)
 
-        # Draw cursor if active
         if self.active and self.cursor_visible:
             cursor_x = self.rect.x + self.padding + self.text_surface.get_width()
-            # Ensure cursor stays within bounds (consider padding)
             if cursor_x < self.rect.right - self.padding:
-                # Adjust cursor vertical position to match text
                 cursor_y = text_y
                 cursor_height = self.font.get_height()
                 pygame.draw.line(screen, Color.TEXT_INPUT_ACTIVE, (cursor_x, cursor_y), (cursor_x, cursor_y + cursor_height), 2)
@@ -167,51 +152,46 @@ class InputBox:
     def get_value(self):
         """Returns the numeric value or 1.0 if invalid/empty."""
         try:
-            # Handle potential large numbers from x100
             val = float(self.text)
             return val if val > 0 and math.isfinite(val) else 1.0 # Ensure mass is positive and finite
         except ValueError:
             return 1.0
 
 
-# --- Block Class Definition (Simplified for Event-Based) ---
-# (Block class remains the same)
+
 class Block:
     """Represents a rectangular block with physical properties for event-based simulation."""
-    _id_counter = 0 # Class variable for unique IDs
+    _id_counter = 0 
 
     def __init__(self, initial_x_meters, width_pixels, height_pixels, color, initial_mass_kg, font):
-        self.id = Block._id_counter # Assign unique ID
+        self.id = Block._id_counter #Assign unique ID
         Block._id_counter += 1
 
-        self.initial_x_meters = initial_x_meters # Store initial position in meters
+        self.initial_x_meters = initial_x_meters #Store initial position in meters
         self.width = width_pixels
         self.height = height_pixels
         self.color = color
         self.mass = initial_mass_kg if initial_mass_kg > 0 else 1.0
-        self.font = font # Use main_font for block text
+        self.font = font
+        self.position_x = 0.0 #Position of the left edge in pixels
+        self.velocity_x = 0.0 #Velocity in pixels per second
 
-        # Use floats for physics calculations
-        self.position_x = 0.0 # Position of the left edge in pixels
-        self.velocity_x = 0.0 # Velocity in pixels per second
-
-        # Pygame rect for drawing
         self.rect = pygame.Rect(0, 0, self.width, self.height)
         self.text_surface = self.font.render("", True, Color.TEXT)
         self.text_rect = self.text_surface.get_rect()
-        self.reset() # Set initial state
+        self.reset() #Set initial state
 
     def set_mass(self, mass_kg):
         """Updates the mass and rerenders the text."""
         self.mass = mass_kg if mass_kg > 0 else 1.0
-        self._update_text() # Call internal text update
+        self._update_text() # Call text update
 
     def reset(self):
         """Resets the block to its initial state."""
         self.position_x = WALL_X + self.initial_x_meters * PIXELS_PER_METER
         self.velocity_x = 0.0
         self._update_rect()
-        self._update_text() # Call internal text update
+        self._update_text() # Call text update
 
     def advance(self, time_step):
         """Moves the block forward in time by time_step."""
@@ -220,65 +200,52 @@ class Block:
 
     def _update_rect(self):
         """Updates the Pygame rect based on the float position."""
-        # Ensure block stays visually on the ground
         pos_y = GROUND_Y - self.height
         self.rect.topleft = (round(self.position_x), pos_y)
-        # Update text position to follow rect
         self.text_rect.center = self.rect.center
 
     def _update_text(self):
         """Updates the mass text surface and rect."""
-        # Format large masses potentially with scientific notation for display on block
         if self.mass > 1e4:
              mass_str = f"{self.mass:.1e} kg"
         else:
              mass_str = f"{self.mass:.1f} kg"
         self.text_surface = self.font.render(mass_str, True, Color.TEXT)
         self.text_rect = self.text_surface.get_rect(center=self.rect.center)
-        # Ensure rect is updated if text changes size
         self._update_rect()
 
 
     def draw(self, surface):
         """Draws the block and its mass text."""
-        self._update_rect() # Ensure rect is current before drawing
+        self._update_rect()
         pygame.draw.rect(surface, self.color, self.rect, border_radius=5)
         surface.blit(self.text_surface, self.text_rect)
 
 
-# --- Collision Calculation Functions ---
-# (Collision functions remain the same)
+
 def time_to_wall_collision(block):
     """Calculates time until the block hits the left wall (WALL_X)."""
-    if block.velocity_x >= 0: # Moving right or stationary
+    if block.velocity_x >= 0: 
         return float('inf')
-    # Wall is at WALL_X, block left edge is at position_x
     distance_to_wall = block.position_x - WALL_X
     if distance_to_wall <= EPSILON: # Already touching or past
         return 0.0
-    # Avoid division by zero if velocity is extremely small negative
     if abs(block.velocity_x) < EPSILON:
         return float('inf')
     return distance_to_wall / abs(block.velocity_x)
 
 def time_to_block_collision(block1, block2):
     """Calculates time until block1 (left) and block2 (right) collide."""
-    # Ensure block1 is the one on the left for calculation consistency
-    # This function assumes block1 and block2 are passed in a fixed order
-    # Let's re-evaluate based on current positions each time
     b1, b2 = (block1, block2) if block1.position_x < block2.position_x else (block2, block1)
 
     relative_velocity = b2.velocity_x - b1.velocity_x
-    # If moving apart or parallel (or same velocity), no collision
     if relative_velocity >= -EPSILON:
         return float('inf')
 
-    # Collision happens when right edge of b1 meets left edge of b2
     gap = b2.position_x - (b1.position_x + b1.width)
     if gap <= EPSILON: # Already touching or overlapping
         return 0.0
 
-    # Avoid division by zero
     if abs(relative_velocity) < EPSILON:
         return float('inf')
 
@@ -287,13 +254,11 @@ def time_to_block_collision(block1, block2):
 def resolve_wall_collision(block):
     """Applies elastic collision with the wall."""
     global collision_count
-    # Perfectly elastic collision: velocity reverses
-    block.velocity_x = -block.velocity_x * COR # COR should be 1.0
+    block.velocity_x = -block.velocity_x * COR
     collision_count += 1
     play_click_sound(block.id, "wall")
-    # Small position correction to ensure it's off the wall
     block.position_x = max(block.position_x, WALL_X + EPSILON)
-    block._update_rect() # Update rect immediately after position change
+    block._update_rect()
 
 
 def resolve_block_collision(block1, block2):
@@ -312,7 +277,7 @@ def resolve_block_collision(block1, block2):
          print(f"Warning: Zero total mass detected during collision. Skipping resolution.")
          return
 
-    # Formulas for 1D elastic collision (COR = 1.0)
+    #formulas for 1D elastic collision
     v1_final = ((m1 - m2) * v1_initial + (2 * m2) * v2_initial) / (m1 + m2)
     v2_final = ((2 * m1) * v1_initial + (m2 - m1) * v2_initial) / (m1 + m2)
 
@@ -322,7 +287,7 @@ def resolve_block_collision(block1, block2):
     play_click_sound(block1.id, block2.id)
 
     # Small position correction to avoid sticking/overlap after velocity change
-    # Determine which block is left and right *now*
+    # Determine which block is left and right now!!!!
     b1, b2 = (block1, block2) if block1.position_x < block2.position_x else (block2, block1)
     overlap = (b1.position_x + b1.width) - b2.position_x
     if overlap > -EPSILON: # If overlapping or touching
@@ -372,7 +337,6 @@ simulation_finished = False
 collision_count = 0
 
 # --- Reset Function ---
-# (Reset function remains the same)
 def reset_simulation():
     """Resets the simulation to the initial state based on input boxes."""
     global simulation_running, simulation_finished, collision_count, sound_play_times, block1, block2
@@ -462,12 +426,10 @@ while runtime:
 
 
     # --- Input Box Updates (Cursor blink) ---
-    # (Input box update logic remains the same)
     for box in input_boxes:
         box.update()
 
     # --- Physics Update (Event-Based) ---
-    # (Physics update logic remains the same)
     if simulation_running:
         time_remaining_in_frame = frame_dt
         collision_this_step = False # Flag to detect if a collision happened
@@ -592,4 +554,3 @@ if sound_enabled:
     pygame.mixer.quit()
 pygame.font.quit()
 pygame.quit()
-# sys.exit()
